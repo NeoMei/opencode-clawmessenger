@@ -24,10 +24,21 @@ export interface RongyunMessage {
   content: any;
   /** 文本内容（已解析） */
   textContent?: string;
+  /** 媒体文件信息 */
+  mediaInfo?: {
+    type: 'image' | 'file';
+    /** 融云文件 URL */
+    fileUrl: string;
+    /** 文件名（仅文件消息） */
+    fileName?: string;
+    /** 文件大小（仅文件消息） */
+    fileSize?: number;
+  };
 }
 
 export interface MessageHandler {
   onTextMessage(msg: RongyunMessage): Promise<void>;
+  onMediaMessage(msg: RongyunMessage): Promise<void>;
   onConnected(userId: string): Promise<void>;
   onDisconnected(code: number): void;
 }
@@ -163,25 +174,45 @@ export class RongyunClient {
       this.processedMessageUIds.clear();
     }
 
-    // 解析文本内容
-    let textContent = '';
-    try {
-      if (typeof msg.content === 'string') {
-        textContent = msg.content;
-      } else if (msg.content?.content) {
-        textContent = msg.content.content;
-      } else if (msg.content?.text) {
-        textContent = msg.content.text;
-      }
-    } catch {}
+    // 解析内容
+    const msgType = msg.messageType;
+    const isMedia = ['RC:ImgMsg', 'RC:SightMsg', 'RC:FileMsg', 'RC:HQVCMsg'].includes(msgType);
 
-    msg.textContent = textContent;
+    if (isMedia) {
+      // 媒体消息：提取文件 URL
+      let parsed: any = {};
+      try { parsed = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content; } catch {}
+      msg.mediaInfo = {
+        type: msgType === 'RC:ImgMsg' || msgType === 'RC:SightMsg' ? 'image' : 'file',
+        fileUrl: parsed.fileUrl || parsed.content || parsed.remoteUrl || '',
+        fileName: parsed.name || '',
+        fileSize: parsed.size || 0,
+      };
+      msg.textContent = `[${msg.mediaInfo.type === 'image' ? '图片' : '文件'}: ${msg.mediaInfo.fileName || msg.mediaInfo.fileUrl}]`;
+    } else {
+      // 文本消息
+      let textContent = '';
+      try {
+        if (typeof msg.content === 'string') {
+          textContent = msg.content;
+        } else if (msg.content?.content) {
+          textContent = msg.content.content;
+        } else if (msg.content?.text) {
+          textContent = msg.content.text;
+        }
+      } catch {}
+      msg.textContent = textContent;
+    }
 
     this.log?.info(
-      `[RongyunClient] 消息: sender=${msg.senderUserId}, type=${msg.conversationType}, text="${textContent.slice(0, 50)}"`
+      `[RongyunClient] 消息: sender=${msg.senderUserId}, type=${msg.conversationType}, ${isMedia ? 'media=' + msg.mediaInfo?.type : 'text="' + (msg.textContent || '').slice(0, 50) + '"'}`
     );
 
-    this.handler?.onTextMessage(msg);
+    if (isMedia) {
+      this.handler?.onMediaMessage(msg);
+    } else {
+      this.handler?.onTextMessage(msg);
+    }
   }
 
   /** 发送文本消息 */

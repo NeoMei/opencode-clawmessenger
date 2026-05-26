@@ -42,8 +42,23 @@ export class RongyunMessageHandler implements IRongyunHandler {
     this.log?.info('[Handler] ClawMessenger 已连接');
   }
 
-  onDisconnected(_code: number): void {
+  async onDisconnected(_code: number): Promise<void> {
     this.log?.warn('[Handler] ClawMessenger 已断开');
+  }
+
+  async onMediaMessage(msg: RongyunMessage): Promise<void> {
+    const chatId = msg.targetId;
+    const chatType = msg.conversationType === ConversationType.GROUP ? 'group' : 'p2p';
+    const media = msg.mediaInfo;
+    if (!media?.fileUrl) return;
+
+    this.log?.info(`[Handler] [${chatType}] media: ${media.type}, url=${media.fileUrl}`);
+
+    // 将媒体 URL 作为文件路径传给 OpenCode
+    const text = `[用户发送了一个${media.type === 'image' ? '图片' : '文件'}]\n文件URL: ${media.fileUrl}\n文件名: ${media.fileName || 'unknown'}\n大小: ${media.fileSize || 0} bytes`;
+    // 复用文本消息处理
+    msg.textContent = text;
+    await this.onTextMessage(msg);
   }
 
   async onTextMessage(msg: RongyunMessage): Promise<void> {

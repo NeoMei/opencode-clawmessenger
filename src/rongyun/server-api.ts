@@ -146,4 +146,93 @@ export class RongCloudServerAPI {
     this.log?.error(`[RongAPI] ${path} 失败`);
     return false;
   }
+
+  // ─── 文件上传 ──────────────────────────────────────────────
+
+  /**
+   * 上传文件到融云
+   * POST /v3/file/upload.json  →  返回 fileUrl
+   */
+  async uploadFile(fileBuffer: Uint8Array, fileName: string): Promise<string | null> {
+    const sign = this.generateSignature();
+    const form = new FormData();
+    form.append('file', new Blob([fileBuffer as any]), fileName);
+
+    for (let i = 0; i < 2; i++) {
+      try {
+        const res = await fetch(`https://${this.host}/v3/file/upload.json`, {
+          method: 'POST',
+          headers: {
+            'App-Key': this.appKey,
+            'Nonce': sign.nonce,
+            'Timestamp': String(sign.timestamp),
+            'Signature': sign.signature,
+          },
+          body: form,
+          signal: AbortSignal.timeout(30000),
+        });
+        if (res.ok) {
+          const json = await res.json() as any;
+          if (json.code === 200) {
+            this.log?.info(`[RongAPI] 文件上传成功: ${json.data?.fileUrl}`);
+            return json.data?.fileUrl || null;
+          }
+        }
+        this.switchHost();
+      } catch {
+        this.switchHost();
+      }
+    }
+    return null;
+  }
+
+  // ─── 发送媒体消息 ──────────────────────────────────────────
+
+  /** 发送图片消息 (RC:ImgMsg) */
+  async sendImage(
+    fromUserId: string,
+    toUserId: string,
+    imageUrl: string,
+    conversationType: 1 | 3 = 1
+  ): Promise<boolean> {
+    return this.sendMediaMessage(
+      fromUserId, toUserId, conversationType,
+      'RC:ImgMsg', JSON.stringify({ content: imageUrl, extra: '' })
+    );
+  }
+
+  /** 发送文件消息 (RC:FileMsg) */
+  async sendFile(
+    fromUserId: string,
+    toUserId: string,
+    fileUrl: string,
+    fileName: string,
+    fileSize: number,
+    conversationType: 1 | 3 = 1
+  ): Promise<boolean> {
+    return this.sendMediaMessage(
+      fromUserId, toUserId, conversationType,
+      'RC:FileMsg', JSON.stringify({ name: fileName, size: fileSize, fileUrl })
+    );
+  }
+
+  private async sendMediaMessage(
+    fromUserId: string,
+    toUserId: string,
+    conversationType: 1 | 3,
+    objectName: string,
+    content: string
+  ): Promise<boolean> {
+    const isPrivate = conversationType === 1;
+    const data = new URLSearchParams({
+      fromUserId,
+      [isPrivate ? 'toUserId' : 'toGroupId']: toUserId,
+      objectName,
+      content,
+    });
+    const path = isPrivate
+      ? '/v3/message/private/publish.json'
+      : '/v3/message/group/publish.json';
+    return this.post(path, data.toString());
+  }
 }
