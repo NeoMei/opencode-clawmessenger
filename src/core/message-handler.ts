@@ -26,16 +26,21 @@ export class RongyunMessageHandler implements IRongyunHandler {
   private client: RongyunClient;
   private opencode: OpenCodeClient;
   private rongApi: RongCloudServerAPI;
+  private clawSender?: ClawMessageSender;
 
   constructor(
     private config: RongyunConfig,
     rongyunClient: RongyunClient,
-    private clawSender: ClawMessageSender,
+    senderOrLog?: ClawMessageSender | Console,
     private log?: Console
   ) {
     this.client = rongyunClient;
     this.opencode = new OpenCodeClient(config.opencodeUrl);
-    this.rongApi = new RongCloudServerAPI(config.appKey, config.appSecret, log);
+    this.rongApi = new RongCloudServerAPI(config.appKey, config.appSecret, log || (senderOrLog as Console));
+    if (senderOrLog && 'buildMessage' in (senderOrLog as any)) {
+      this.clawSender = senderOrLog as ClawMessageSender;
+      this.log = undefined; // senderOrLog was the sender, 4th param is log
+    }
   }
 
   async onConnected(_userId: string): Promise<void> {
@@ -88,7 +93,7 @@ export class RongyunMessageHandler implements IRongyunHandler {
         const s = await this.opencode.createSession(`ClawMessenger ${chatType} ${chatId}`);
         session = { id: s.id, chatId, status: 'idle' };
         this.sessions.set(chatId, session);
-        this.clawSender.notifySessionCreated(s.id).catch(() => {});
+        this.clawSender?.notifySessionCreated(s.id).catch(() => {});
       }
 
       session.status = 'busy';

@@ -1,160 +1,103 @@
 #!/usr/bin/env node
-/**
- * opencode-clawmessenger CLI — 魂器 ClawMessenger 连接器
- *
- * 通过融云 IM 连接 ClawMessenger，让 OpenCode Agent 接入消息通信。
- *
- * 用法: opencode-clawmessenger <command>
- *   setup    扫码配置连接（生成二维码供 ClawMessenger App 扫描）
- *   start    启动桥接服务
- *   doctor   检查连接状态
- */
-
 import { Command } from 'commander';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { networkInterfaces } from 'node:os';
 
 const program = new Command();
-const pkg = JSON.parse(
-  readFileSync(join(import.meta.dirname, '..', 'package.json'), 'utf-8')
-);
+const pkg = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'package.json'), 'utf-8'));
 
 program
   .name('opencode-clawmessenger')
-  .description('魂器 ClawMessenger 连接器 — 接入融云 IM 消息通信')
+  .description('魂器 ClawMessenger 连接器')
   .version(pkg.version);
 
 program
   .command('setup')
-  .description('扫码配置 ClawMessenger 连接')
+  .description('生成注册二维码')
   .action(async () => {
-    const { default: inquirer } = await import('inquirer');
     const { ConfigManager } = await import('../dist/core/config.js');
     const { getMacAddress } = await import('../dist/modules/mac-address.js');
     const { generateSecret } = await import('../dist/modules/auth.js');
 
-    console.log('\n📡 ClawMessenger 连接配置\n' + '─'.repeat(50));
+    console.log('\n📡 ClawMessenger 设备注册');
+    console.log('─'.repeat(50));
 
     const mac = getMacAddress();
-    console.log(`  设备 MAC:  ${mac}`);
+    const secretKey = 'claw_secret_' + mac.slice(0, 8);
+    const secret = generateSecret(mac, secretKey);
+    const accountId = 'claw_' + mac;
 
-    const answers = await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'appKey',
-        message: '融云 App Key:',
-        validate: (v) => v.length > 0 || '不能为空',
-      },
-      {
-        type: 'input',
-        name: 'appSecret',
-        message: '融云 App Secret:',
-        validate: (v) => v.length > 0 || '不能为空',
-      },
-      {
-        type: 'input',
-        name: 'secretKey',
-        message: '设备 Secret Key:',
-        default: 'secret_key',
-      },
-      {
-        type: 'input',
-        name: 'accountId',
-        message: '机器人融云账号 ID:',
-        default: `claw_${mac}`,
-      },
-      {
-        type: 'input',
-        name: 'token',
-        message: '融云 Token（通过服务端 API 获取）:',
-        validate: (v) => v.length > 0 || '不能为空',
-      },
-      {
-        type: 'input',
-        name: 'opencodeUrl',
-        message: 'OpenCode serve 地址:',
-        default: 'http://localhost:19876',
-      },
-    ]);
-
-    const secret = generateSecret(mac, answers.secretKey);
-
-    // 生成注册二维码内容
-    const qrData = JSON.stringify({
-      mac,
-      secret,
-      accountId: answers.accountId,
-      appKey: answers.appKey,
-    });
+    console.log('  设备 MAC:   ' + mac);
+    console.log('  设备账号:   ' + accountId);
+    console.log('');
 
     const config = {
-      ...answers,
+      appKey: 'YOUR_APP_KEY',
+      appSecret: 'YOUR_APP_SECRET',
+      token: 'YOUR_TOKEN',
+      accountId,
+      secretKey,
+      opencodeUrl: 'http://localhost:19876',
       autoApprove: true,
       p2pPolicy: 'open',
       groupPolicy: 'mention',
     };
+    new ConfigManager().save(config);
 
-    const mgr = new ConfigManager();
-    mgr.save(config);
-
-    // 显示二维码
-    console.log('\n📱 注册二维码\n' + '─'.repeat(50));
+    const qrData = JSON.stringify({ mac, secret, accountId });
+    console.log('📱 请用 ClawMessenger App 扫描注册:\n');
     try {
       const qrcode = await import('qrcode');
-      const qr = await qrcode.default.toString(qrData, {
-        type: 'terminal',
-        small: true,
-      });
+      const qr = await qrcode.default.toString(qrData, { type: 'terminal', small: true });
       console.log(qr);
-    } catch {
-      console.log('  (qrcode 包未安装，跳过二维码显示)');
-      console.log(`  注册数据: ${qrData}`);
+    } catch (_e) {
+      console.log('  (qrcode 未安装)');
+      console.log('  注册数据: ' + qrData);
     }
-
-    console.log(`\n  使用 ClawMessenger App 扫描上方二维码完成设备注册`);
-    console.log(`  配置已保存到 ~/.config/opencode/rongyun.json\n`);
+    console.log('');
+    console.log('  配置: ~/.config/opencode/rongyun.json');
+    console.log('');
   });
 
 program
   .command('start')
-  .description('启动 ClawMessenger 桥接服务')
+  .description('启动桥接服务')
   .action(async () => {
     console.log('🚀 启动 ClawMessenger 桥接...\n');
     const { ConfigManager } = await import('../dist/core/config.js');
+    const mgr = new ConfigManager();
+    if (!mgr.exists()) {
+      console.log('⚠️  未配置: opencode-clawmessenger setup');
+      return;
+    }
+    const config = mgr.load();
+    if (config.appKey === 'YOUR_APP_KEY' || config.token === 'YOUR_TOKEN') {
+      console.log('⚠️  融云参数未配置，请编辑 ~/.config/opencode/rongyun.json');
+      return;
+    }
+
     const { RongyunClient } = await import('../dist/rongyun/client.js');
     const { RongyunMessageHandler } = await import('../dist/core/message-handler.js');
-    const { ClawMessageSender } = await import('../dist/modules/message-sender.js');
+    const { getMacAddress } = await import('../dist/modules/mac-address.js');
 
-    const mgr = new ConfigManager();
-    const config = mgr.load();
+    console.log('  设备 MAC:    ' + getMacAddress());
+    console.log('  App Key:     ' + config.appKey.slice(0, 6) + '...');
+    console.log('  账号:        ' + config.accountId);
+    console.log('  OpenCode:    ' + config.opencodeUrl);
 
-    console.log(`  设备 MAC:    ${(await import('../dist/modules/mac-address.js')).getMacAddress()}`);
-    console.log(`  App Key:     ${config.appKey.slice(0, 6)}...`);
-    console.log(`  账号:        ${config.accountId}`);
-    console.log(`  OpenCode:    ${config.opencodeUrl}`);
+    const client = new RongyunClient({
+      appKey: config.appKey,
+      token: config.token,
+      accountId: config.accountId,
+      botUserId: config.accountId,
+    }, console);
 
-    const log = console;
-    const client = new RongyunClient(
-      {
-        appKey: config.appKey,
-        token: config.token,
-        accountId: config.accountId,
-        botUserId: config.accountId,
-      },
-      log
-    );
-
-    const sender = new ClawMessageSender(client, config, log);
-    const handler = new RongyunMessageHandler(config, client, sender, log);
+    const handler = new RongyunMessageHandler(config, client, console);
 
     const ok = await client.connect(handler);
     if (ok) {
       console.log('\n✅ ClawMessenger 桥接已启动');
-      // 上报设备状态
-      await sender.reportStatus('online');
-      // 启动心跳
-      client.setHeartbeatHandler(() => sender.reportStatus('online'));
+      client.setHeartbeatHandler(function () { console.log('[Heartbeat]'); });
       client.startHeartbeat(30000);
     } else {
       console.log('\n❌ 连接失败');
@@ -164,29 +107,30 @@ program
 
 program
   .command('doctor')
-  .description('检查 ClawMessenger 连接状态')
+  .description('检查连接状态')
   .action(async () => {
     const { ConfigManager } = await import('../dist/core/config.js');
     const { getMacAddress } = await import('../dist/modules/mac-address.js');
     const mgr = new ConfigManager();
 
-    console.log('\n🔍 ClawMessenger 诊断\n' + '─'.repeat(40));
-    console.log(`  设备 MAC:    ${getMacAddress()}`);
+    console.log('\n🔍 ClawMessenger 诊断');
+    console.log('─'.repeat(40));
+    console.log('  设备 MAC:    ' + getMacAddress());
 
     if (mgr.exists()) {
       const cfg = mgr.load();
-      console.log(`  App Key:     ${cfg.appKey?.slice(0, 6)}... ✅`);
-      console.log(`  Token:       ${cfg.token ? '已配置 ✅' : '未配置 ❌'}`);
-      console.log(`  账号:        ${cfg.accountId || '未配置'}`);
-      console.log(`  OpenCode:    ${cfg.opencodeUrl || '未配置'}`);
+      console.log('  App Key:     ' + cfg.appKey.slice(0, 6) + '...');
+      console.log('  Token:       ' + (cfg.token && cfg.token !== 'YOUR_TOKEN' ? '已配置 ✅' : '未配置 ⚠️'));
+      console.log('  账号:        ' + cfg.accountId);
+      console.log('  OpenCode:    ' + cfg.opencodeUrl);
     } else {
-      console.log('  配置:        未配置 ⚠️  (opencode-clawmessenger setup)');
+      console.log('  配置:        未配置 ⚠️');
     }
 
     try {
       const res = await fetch('http://localhost:19876/health', { signal: AbortSignal.timeout(2000) });
-      console.log(`  OpenCode:     ${res.ok ? '运行中 ✅' : '异常 ❌'}`);
-    } catch {
+      console.log('  OpenCode:     ' + (res.ok ? '运行中 ✅' : '异常 ❌'));
+    } catch (_e) {
       console.log('  OpenCode:     未运行 ⚠️');
     }
     console.log();
