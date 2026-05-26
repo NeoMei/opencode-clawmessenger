@@ -73,25 +73,26 @@ export class RongyunMessageHandler implements IRongyunHandler {
     const text = msg.textContent || '';
 
     // ── 协议消息处理 ──
-    // bind_openclaw: App 扫码后发来的设备绑定请求
-    if (senderId !== this.config.accountId) {
-      let parsed: any = null;
-      try { parsed = JSON.parse(text); } catch {}
-      if (parsed?.type === 'bind_openclaw_request') {
-        this.log?.info('[Handler] 收到设备绑定请求: ' + parsed.node_id);
-        // 回复 RongCloud 连接参数（从配置读取）
-        const reply = JSON.stringify({
-          type: 'bind_openclaw_response',
-          node_id: parsed.node_id,
-          app_key: this.config.appKey,
-          app_secret: this.config.appSecret,
-          token: this.config.token,
-          account_id: this.config.accountId,
-        });
-        await this.client.sendText(msg.conversationType, chatId, reply);
-        return;
-      }
+    let parsed: any = null;
+    try { parsed = JSON.parse(text); } catch {}
+
+    if (parsed?.type === 'bind_openclaw_push') {
+      // App 扫码后推送融云凭证到服务端
+      this.log?.info('[Handler] 收到凭证推送: ' + (parsed.app_key || '?'));
+      this.config.appKey = parsed.app_key || this.config.appKey;
+      this.config.appSecret = parsed.app_secret || this.config.appSecret;
+      this.config.token = parsed.token || this.config.token;
+      this.config.accountId = parsed.account_id || parsed.node_id || this.config.accountId;
+      // 保存到配置文件
+      const { ConfigManager } = await import('../core/config.js');
+      new ConfigManager().save(this.config);
+      await this.client.sendText(msg.conversationType, chatId,
+        JSON.stringify({ type: 'bind_ack', node_id: parsed.node_id, status: 'ok' })
+      );
+      return;
     }
+
+    if (senderId === this.config.accountId) return;  // 过滤自己的消息
 
     this.log?.info(`[Handler] [${chatType}] ${senderId}: ${text.slice(0, 80)}`);
 

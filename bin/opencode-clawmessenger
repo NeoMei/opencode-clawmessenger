@@ -53,6 +53,7 @@ program
       mac: mac,
     });
     console.log('📱 请用 ClawMessenger App 扫描注册:\n');
+    console.log('  App 扫码后将自动推送融云凭证，无需手动配置。\n');
     try {
       const qrcode = await import('qrcode');
       const qr = await qrcode.default.toString(qrData, { type: 'terminal', small: true });
