@@ -1,0 +1,169 @@
+#!/usr/bin/env node
+/**
+ * opencode-rongyun CLI
+ *
+ * 用法: opencode-rongyun <command>
+ *   setup    配置融云连接参数
+ *   start    启动融云桥接服务
+ *   doctor   检查连接状态
+ *   status   查看运行状态
+ */
+
+import { Command } from 'commander';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const program = new Command();
+const pkg = JSON.parse(
+  readFileSync(join(import.meta.dirname, '..', 'package.json'), 'utf-8')
+);
+
+program
+  .name('opencode-rongyun')
+  .description('魂器融云连接器 — 通过融云 IM 与 OpenCode Agent 通信')
+  .version(pkg.version);
+
+program
+  .command('setup')
+  .description('配置融云连接参数')
+  .action(async () => {
+    const { default: inquirer } = await import('inquirer');
+    const { ConfigManager, DEFAULT_CONFIG } = await import('../core/config.js');
+
+    console.log('\n📡 融云连接配置\n' + '─'.repeat(40));
+    console.log('请准备以下信息:');
+    console.log('  - App Key: 融云控制台 → 应用管理 → App Key');
+    console.log('  - Token: 融云用户 Token（通过服务端 API 获取）');
+    console.log('  - Account ID: 机器人在融云的 userId\n');
+
+    const answers = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'appKey',
+        message: 'App Key:',
+        validate: (v: string) => v.length > 0 || 'App Key 不能为空',
+      },
+      {
+        type: 'input',
+        name: 'token',
+        message: 'Token:',
+        validate: (v: string) => v.length > 0 || 'Token 不能为空',
+      },
+      {
+        type: 'input',
+        name: 'accountId',
+        message: 'Account ID (机器人 userId):',
+        validate: (v: string) => v.length > 0 || 'Account ID 不能为空',
+      },
+      {
+        type: 'list',
+        name: 'groupPolicy',
+        message: '群聊策略:',
+        choices: [
+          { name: '仅 @提及 时回复', value: 'mention' },
+          { name: '全部回复', value: 'open' },
+          { name: '不回复群聊', value: 'disabled' },
+        ],
+      },
+      {
+        type: 'input',
+        name: 'opencodeUrl',
+        message: 'OpenCode serve 地址:',
+        default: 'http://localhost:19876',
+      },
+    ]);
+
+    const config = {
+      ...DEFAULT_CONFIG,
+      ...answers,
+      autoApprove: true,
+      p2pPolicy: 'open' as const,
+    };
+
+    const mgr = new ConfigManager();
+    mgr.save(config as any);
+    console.log('\n✅ 配置已保存到 ~/.config/opencode/rongyun.json');
+  });
+
+program
+  .command('start')
+  .description('启动融云桥接服务')
+  .option('--daemon', '后台运行')
+  .action(async (options) => {
+    console.log('🚀 启动融云桥接...');
+    const { ConfigManager } = await import('../core/config.js');
+    const { RongyunClient } = await import('../rongyun/client.js');
+    const { RongyunMessageHandler } = await import('../core/message-handler.js');
+
+    const mgr = new ConfigManager();
+    const config = mgr.load();
+
+    console.log(`  App Key: ${config.appKey.slice(0, 6)}...`);
+    console.log(`  Account: ${config.accountId}`);
+    console.log(`  OpenCode: ${config.opencodeUrl}`);
+
+    const log = console;
+    const client = new RongyunClient(
+      {
+        appKey: config.appKey,
+        token: config.token,
+        accountId: config.accountId,
+        botUserId: config.botUserId || config.accountId,
+      },
+      log
+    );
+
+    const handler = new RongyunMessageHandler(config, client, log);
+
+    const ok = await client.connect(handler);
+    if (ok) {
+      console.log('✅ 融云桥接已启动');
+    } else {
+      console.log('❌ 融云连接失败');
+      process.exit(1);
+    }
+  });
+
+program
+  .command('doctor')
+  .description('检查融云连接配置和状态')
+  .action(async () => {
+    const { ConfigManager } = await import('../core/config.js');
+    const mgr = new ConfigManager();
+
+    console.log('\n🔍 融云连接诊断\n' + '─'.repeat(30));
+
+    if (mgr.exists()) {
+      try {
+        const cfg = mgr.load();
+        console.log(`  App Key:     ${cfg.appKey?.slice(0, 6)}... ✅`);
+        console.log(`  Token:       ${cfg.token ? '已配置 ✅' : '未配置 ❌'}`);
+        console.log(`  Account:     ${cfg.accountId || '未配置 ❌'}`);
+        console.log(`  OpenCode:    ${cfg.opencodeUrl || '未配置 ❌'}`);
+        console.log(`  群聊策略:    ${cfg.groupPolicy || 'mention'}`);
+      } catch {
+        console.log('  配置文件:    格式错误 ❌');
+      }
+    } else {
+      console.log('  配置文件:    未配置 ⚠️  (opencode-rongyun setup)');
+    }
+
+    // 检查 opencode serve
+    try {
+      const res = await fetch('http://localhost:19876/health', { signal: AbortSignal.timeout(2000) });
+      console.log(`  OpenCode服务: ${res.ok ? '运行中 ✅' : '异常 ❌'}`);
+    } catch {
+      console.log('  OpenCode服务: 未运行 ⚠️');
+    }
+
+    console.log();
+  });
+
+program
+  .command('status')
+  .description('查看运行状态')
+  .action(() => {
+    console.log('状态查看：TODO - 需要 PID 文件管理');
+  });
+
+program.parse();
