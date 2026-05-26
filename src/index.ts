@@ -11,3 +11,7 @@ export { RongyunMessageHandler } from './core/message-handler.js';
 export { OpenCodeClient } from './opencode/client.js';
 export { ConfigManager } from './core/config.js';
 export type { RongyunConfig } from './core/config.js';
+export { ClawMessageSender } from './modules/message-sender.js';
+export * from './modules/message-types.js';
+export { getMacAddress } from './modules/mac-address.js';
+export { generateSecret, verifySecret } from './modules/auth.js';

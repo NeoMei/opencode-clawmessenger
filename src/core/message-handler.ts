@@ -5,6 +5,7 @@
 import { RongyunClient, MessageHandler as IRongyunHandler, RongyunMessage, ConversationType } from '../rongyun/client.js';
 import { OpenCodeClient } from '../opencode/client.js';
 import type { RongyunConfig } from './config.js';
+import type { ClawMessageSender } from '../modules/message-sender.js';
 
 interface Session {
   id: string;
@@ -25,6 +26,7 @@ export class RongyunMessageHandler implements IRongyunHandler {
   constructor(
     private config: RongyunConfig,
     rongyunClient: RongyunClient,
+    private clawSender: ClawMessageSender,
     private log?: Console
   ) {
     this.client = rongyunClient;
