@@ -72,6 +72,27 @@ export class RongyunMessageHandler implements IRongyunHandler {
     const senderId = msg.senderUserId;
     const text = msg.textContent || '';
 
+    // ── 协议消息处理 ──
+    // bind_openclaw: App 扫码后发来的设备绑定请求
+    if (senderId !== this.config.accountId) {
+      let parsed: any = null;
+      try { parsed = JSON.parse(text); } catch {}
+      if (parsed?.type === 'bind_openclaw_request') {
+        this.log?.info('[Handler] 收到设备绑定请求: ' + parsed.node_id);
+        // 回复 RongCloud 连接参数（从配置读取）
+        const reply = JSON.stringify({
+          type: 'bind_openclaw_response',
+          node_id: parsed.node_id,
+          app_key: this.config.appKey,
+          app_secret: this.config.appSecret,
+          token: this.config.token,
+          account_id: this.config.accountId,
+        });
+        await this.client.sendText(msg.conversationType, chatId, reply);
+        return;
+      }
+    }
+
     this.log?.info(`[Handler] [${chatType}] ${senderId}: ${text.slice(0, 80)}`);
 
     // 策略检查

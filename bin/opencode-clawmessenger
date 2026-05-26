@@ -44,7 +44,14 @@ program
     };
     new ConfigManager().save(config);
 
-    const qrData = JSON.stringify({ mac, secret, accountId });
+    // 按 bind_openclaw 协议生成注册二维码
+    const qrData = JSON.stringify({
+      type: 'bind_openclaw',
+      node_id: accountId,
+      name: '魂器',
+      timestamp: Date.now(),
+      mac: mac,
+    });
     console.log('📱 请用 ClawMessenger App 扫描注册:\n');
     try {
       const qrcode = await import('qrcode');
