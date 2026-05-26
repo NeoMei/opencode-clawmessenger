@@ -30,9 +30,9 @@ program
   .description('扫码配置 ClawMessenger 连接')
   .action(async () => {
     const { default: inquirer } = await import('inquirer');
-    const { ConfigManager } = await import('../core/config.js');
-    const { getMacAddress } = await import('../modules/mac-address.js');
-    const { generateSecret } = await import('../modules/auth.js');
+    const { ConfigManager } = await import('../dist/core/config.js');
+    const { getMacAddress } = await import('../dist/modules/mac-address.js');
+    const { generateSecret } = await import('../dist/modules/auth.js');
 
     console.log('\n📡 ClawMessenger 连接配置\n' + '─'.repeat(50));
 
@@ -44,13 +44,13 @@ program
         type: 'input',
         name: 'appKey',
         message: '融云 App Key:',
-        validate: (v: string) => v.length > 0 || '不能为空',
+        validate: (v) => v.length > 0 || '不能为空',
       },
       {
         type: 'input',
         name: 'appSecret',
         message: '融云 App Secret:',
-        validate: (v: string) => v.length > 0 || '不能为空',
+        validate: (v) => v.length > 0 || '不能为空',
       },
       {
         type: 'input',
@@ -68,7 +68,7 @@ program
         type: 'input',
         name: 'token',
         message: '融云 Token（通过服务端 API 获取）:',
-        validate: (v: string) => v.length > 0 || '不能为空',
+        validate: (v) => v.length > 0 || '不能为空',
       },
       {
         type: 'input',
@@ -91,12 +91,12 @@ program
     const config = {
       ...answers,
       autoApprove: true,
-      p2pPolicy: 'open' as const,
-      groupPolicy: 'mention' as const,
+      p2pPolicy: 'open',
+      groupPolicy: 'mention',
     };
 
     const mgr = new ConfigManager();
-    mgr.save(config as any);
+    mgr.save(config);
 
     // 显示二维码
     console.log('\n📱 注册二维码\n' + '─'.repeat(50));
@@ -121,15 +121,15 @@ program
   .description('启动 ClawMessenger 桥接服务')
   .action(async () => {
     console.log('🚀 启动 ClawMessenger 桥接...\n');
-    const { ConfigManager } = await import('../core/config.js');
-    const { RongyunClient } = await import('../rongyun/client.js');
-    const { RongyunMessageHandler } = await import('../core/message-handler.js');
-    const { ClawMessageSender } = await import('../modules/message-sender.js');
+    const { ConfigManager } = await import('../dist/core/config.js');
+    const { RongyunClient } = await import('../dist/rongyun/client.js');
+    const { RongyunMessageHandler } = await import('../dist/core/message-handler.js');
+    const { ClawMessageSender } = await import('../dist/modules/message-sender.js');
 
     const mgr = new ConfigManager();
     const config = mgr.load();
 
-    console.log(`  设备 MAC:    ${(await import('../modules/mac-address.js')).getMacAddress()}`);
+    console.log(`  设备 MAC:    ${(await import('../dist/modules/mac-address.js')).getMacAddress()}`);
     console.log(`  App Key:     ${config.appKey.slice(0, 6)}...`);
     console.log(`  账号:        ${config.accountId}`);
     console.log(`  OpenCode:    ${config.opencodeUrl}`);
@@ -166,8 +166,8 @@ program
   .command('doctor')
   .description('检查 ClawMessenger 连接状态')
   .action(async () => {
-    const { ConfigManager } = await import('../core/config.js');
-    const { getMacAddress } = await import('../modules/mac-address.js');
+    const { ConfigManager } = await import('../dist/core/config.js');
+    const { getMacAddress } = await import('../dist/modules/mac-address.js');
     const mgr = new ConfigManager();
 
     console.log('\n🔍 ClawMessenger 诊断\n' + '─'.repeat(40));

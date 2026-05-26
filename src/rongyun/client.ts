@@ -8,9 +8,9 @@
  * 4. 发送消息 (sendMessage)
  */
 
-import RongIMLibModule from '@rongcloud/imlib-next';
+import * as RongIMLibModule from '@rongcloud/imlib-next';
 
-const RongIMLib = (RongIMLibModule as any).default || RongIMLibModule;
+const RongIMLib = RongIMLibModule as any;
 
 export interface RongyunMessage {
   messageType: string;
