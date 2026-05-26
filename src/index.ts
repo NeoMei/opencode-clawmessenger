@@ -5,7 +5,9 @@
  * 用户发送消息到融云 → 桥接到 opencode serve → AI 回复 → 发回融云。
  */
 
-export { RongyunClient } from './rongyun/client.js';
-export { MessageHandler } from './core/message-handler.js';
+export { RongyunClient, ConversationType } from './rongyun/client.js';
+export type { RongyunMessage, MessageHandler as IMessageHandler } from './rongyun/client.js';
+export { RongyunMessageHandler } from './core/message-handler.js';
 export { OpenCodeClient } from './opencode/client.js';
 export { ConfigManager } from './core/config.js';
+export type { RongyunConfig } from './core/config.js';
