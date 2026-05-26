@@ -147,6 +147,9 @@ program
       console.log('\n✅ ClawMessenger 桥接已启动');
       // 上报设备状态
       await sender.reportStatus('online');
+      // 启动心跳
+      client.setHeartbeatHandler(() => sender.reportStatus('online'));
+      client.startHeartbeat(30000);
     } else {
       console.log('\n❌ 连接失败');
       process.exit(1);

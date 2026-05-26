@@ -1,5 +1,7 @@
 /**
- * MessageHandler — 融云 ↔ OpenCode 消息桥接
+ * MessageHandler — ClawMessenger ↔ OpenCode 消息桥接
+ *
+ * 接收融云消息 → 转发到 OpenCode → 流式接收 AI 回复 → 发回融云
  */
 
 import { RongyunClient, MessageHandler as IRongyunHandler, RongyunMessage, ConversationType } from '../rongyun/client.js';
@@ -15,8 +17,8 @@ interface Session {
 
 const CONTEXT_PREFIX =
   '[系统指令：请全程使用简体中文进行思考和推理，包括分析过程、工具调用说明和中间步骤。最终回答可以保持用户要求的语言。]\n\n' +
-  '[系统上下文] 当前融云对话ID: {chatId}\n' +
-  '[系统上下文] 当前融云会话类型: {chatType}\n\n';
+  '[系统上下文] 当前 ClawMessenger 对话ID: {chatId}\n' +
+  '[系统上下文] 当前会话类型: {chatType}\n\n';
 
 export class RongyunMessageHandler implements IRongyunHandler {
   private sessions = new Map<string, Session>();
@@ -33,12 +35,12 @@ export class RongyunMessageHandler implements IRongyunHandler {
     this.opencode = new OpenCodeClient(config.opencodeUrl);
   }
 
-  async onConnected(userId: string): Promise<void> {
-    this.log?.info(`[Handler] 融云已连接, userId: ${userId}`);
+  async onConnected(_userId: string): Promise<void> {
+    this.log?.info('[Handler] ClawMessenger 已连接');
   }
 
   onDisconnected(_code: number): void {
-    this.log?.warn('[Handler] 融云已断开');
+    this.log?.warn('[Handler] ClawMessenger 已断开');
   }
 
   async onTextMessage(msg: RongyunMessage): Promise<void> {
@@ -57,59 +59,72 @@ export class RongyunMessageHandler implements IRongyunHandler {
         if (!text.includes(`@${prefix}`)) return;
       }
     }
-
-    // p2p 策略检查
     if (chatType === 'p2p' && this.config.p2pPolicy === 'disabled') return;
-
-    // 获取或创建 session
-    let session = this.sessions.get(chatId);
-    if (!session || session.status === 'idle') {
-      try {
-        const s = await this.opencode.createSession(`Rongyun ${chatType} ${chatId}`);
-        session = { id: s.id, chatId, status: 'busy' };
-        this.sessions.set(chatId, session);
-      } catch (err) {
-        this.log?.error(`[Handler] 创建 session 失败: ${err}`);
-        return;
-      }
-    }
-
-    session.status = 'busy';
-
-    // 构造上下文
-    const context = CONTEXT_PREFIX
-      .replace('{chatId}', chatId)
-      .replace('{chatType}', chatType);
 
     // 发送已读回执
     this.client.sendReadReceipt(msg).catch(() => {});
 
-    // 发送到 opencode
-    try {
-      await this.opencode.sendPrompt(session.id, context + text);
-      this.log?.info(`[Handler] Prompt 已发送, session=${session.id}`);
-    } catch (err) {
-      this.log?.error(`[Handler] 发送 prompt 失败: ${err}`);
-      await this.client.sendText(
-        msg.conversationType,
-        chatId,
-        `❌ 处理失败: ${err}`
-      );
-    }
+    // 发送 "正在输入..." 状态
+    this.client.sendText(msg.conversationType, chatId, '⏳').catch(() => {});
 
-    session.status = 'idle';
+    try {
+      // 获取或创建 OpenCode session
+      let session = this.sessions.get(chatId);
+      if (!session) {
+        const s = await this.opencode.createSession(`ClawMessenger ${chatType} ${chatId}`);
+        session = { id: s.id, chatId, status: 'idle' };
+        this.sessions.set(chatId, session);
+        // 通知 guardserver session 已创建
+        this.clawSender.notifySessionCreated(s.id).catch(() => {});
+      }
+
+      session.status = 'busy';
+      const context = CONTEXT_PREFIX
+        .replace('{chatId}', chatId)
+        .replace('{chatType}', chatType);
+
+      // 发送到 OpenCode 并流式接收回复
+      const sessionId = session.id;
+      await this.opencode.sendPrompt(
+        sessionId,
+        context + text,
+        // onText: 流式增量（融云不支持流式，所以攒着最后一起发）
+        (_delta: string) => {},
+        // onDone: AI 回复完成，发回融云
+        async (fullText: string) => {
+          if (fullText.trim()) {
+            await this.sendReply(msg.conversationType, chatId, fullText);
+          }
+          session.status = 'idle';
+        },
+        // onError
+        async (err: Error) => {
+          this.log?.error(`[Handler] OpenCode 错误: ${err.message}`);
+          await this.client.sendText(
+            msg.conversationType, chatId,
+            `❌ 处理失败: ${err.message}`
+          );
+          session.status = 'idle';
+        }
+      );
+    } catch (err: any) {
+      this.log?.error(`[Handler] 异常: ${err.message}`);
+      const session = this.sessions.get(chatId);
+      if (session) session.status = 'idle';
+    }
   }
 
-  /** 发送回复到融云 */
+  /** 发送回复到融云，超长分段 */
   async sendReply(
     conversationType: number,
     targetId: string,
     text: string
   ): Promise<void> {
-    // 融云单条消息最长 2000 字，超过分段发送
     const chunks = splitText(text, 2000);
     for (const chunk of chunks) {
       await this.client.sendText(conversationType, targetId, chunk);
+      // 小延迟避免融云限流
+      await sleep(100);
     }
   }
 }
@@ -121,4 +136,8 @@ function splitText(text: string, maxLen: number): string[] {
     chunks.push(text.slice(i, i + maxLen));
   }
   return chunks;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }

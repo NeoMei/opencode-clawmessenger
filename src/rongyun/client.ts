@@ -43,6 +43,28 @@ export class RongyunClient {
   private accountId: string;
   private processedMessageUIds = new Set<string>();
   private sentMessageUIds = new Set<string>();
+  private heartbeatTimer?: ReturnType<typeof setInterval>;
+  private onHeartbeat?: () => void;
+
+  setHeartbeatHandler(handler: () => void): void {
+    this.onHeartbeat = handler;
+  }
+
+  startHeartbeat(intervalMs = 30000): void {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      this.log?.info('[RongyunClient] 心跳');
+      this.onHeartbeat?.();
+    }, intervalMs);
+    this.log?.info(`[RongyunClient] 心跳已启动 (${intervalMs}ms)`);
+  }
+
+  stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = undefined;
+    }
+  }
 
   constructor(
     private config: { appKey: string; token: string; accountId: string; botUserId?: string },
@@ -208,6 +230,7 @@ export class RongyunClient {
   }
 
   disconnect(): void {
+    this.stopHeartbeat();
     if (RongIMLib.disconnect) {
       RongIMLib.disconnect();
     }
