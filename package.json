@@ -1,11 +1,11 @@
 {
-  "name": "@neomei/opencode-rongyun",
+  "name": "@neomei/opencode-clawmessenger",
   "version": "0.1.0",
-  "description": "魂器融云连接器 — 通过融云 IM 与 OpenCode Agent 通信",
+  "description": "魂器ClawMessenger 连接器 — 通过融云 IM 与 OpenCode Agent 通信",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "opencode-rongyun": "bin/opencode-rongyun"
+    "opencode-clawmessenger": "bin/opencode-clawmessenger"
   },
   "files": [
     "dist",
@@ -23,7 +23,7 @@
   "keywords": ["rongcloud", "opencode", "im", "agent", "adapter"],
   "repository": {
     "type": "git",
-    "url": "https://github.com/NeoMei/opencode-rongyun"
+    "url": "https://github.com/NeoMei/opencode-clawmessenger"
   },
   "license": "MIT",
   "dependencies": {

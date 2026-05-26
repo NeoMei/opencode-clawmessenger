@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * opencode-rongyun CLI
+ * opencode-clawmessenger CLI
  *
- * 用法: opencode-rongyun <command>
+ * 用法: opencode-clawmessenger <command>
  *   setup    配置融云连接参数
  *   start    启动融云桥接服务
  *   doctor   检查连接状态
@@ -19,7 +19,7 @@ const pkg = JSON.parse(
 );
 
 program
-  .name('opencode-rongyun')
+  .name('opencode-clawmessenger')
   .description('魂器融云连接器 — 通过融云 IM 与 OpenCode Agent 通信')
   .version(pkg.version);
 
@@ -145,7 +145,7 @@ program
         console.log('  配置文件:    格式错误 ❌');
       }
     } else {
-      console.log('  配置文件:    未配置 ⚠️  (opencode-rongyun setup)');
+      console.log('  配置文件:    未配置 ⚠️  (opencode-clawmessenger setup)');
     }
 
     // 检查 opencode serve
