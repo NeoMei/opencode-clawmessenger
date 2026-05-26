@@ -7,6 +7,7 @@
 
 export { RongyunClient, ConversationType } from './rongyun/client.js';
 export type { RongyunMessage, MessageHandler as IMessageHandler } from './rongyun/client.js';
+export { RongCloudServerAPI } from './rongyun/server-api.js';
 export { RongyunMessageHandler } from './core/message-handler.js';
 export { OpenCodeClient } from './opencode/client.js';
 export { ConfigManager } from './core/config.js';

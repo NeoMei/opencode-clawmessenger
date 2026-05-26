@@ -1,11 +1,12 @@
 /**
- * MessageHandler — ClawMessenger ↔ OpenCode 消息桥接
+ * MessageHandler — ClawMessenger ↔ OpenCode 流式消息桥接
  *
- * 接收融云消息 → 转发到 OpenCode → 流式接收 AI 回复 → 发回融云
+ * 融云消息 → OpenCode SSE 流式 → 融云 RC:StreamMsg 流式回传
  */
 
 import { RongyunClient, MessageHandler as IRongyunHandler, RongyunMessage, ConversationType } from '../rongyun/client.js';
 import { OpenCodeClient } from '../opencode/client.js';
+import { RongCloudServerAPI } from '../rongyun/server-api.js';
 import type { RongyunConfig } from './config.js';
 import type { ClawMessageSender } from '../modules/message-sender.js';
 
@@ -24,6 +25,7 @@ export class RongyunMessageHandler implements IRongyunHandler {
   private sessions = new Map<string, Session>();
   private client: RongyunClient;
   private opencode: OpenCodeClient;
+  private rongApi: RongCloudServerAPI;
 
   constructor(
     private config: RongyunConfig,
@@ -33,6 +35,7 @@ export class RongyunMessageHandler implements IRongyunHandler {
   ) {
     this.client = rongyunClient;
     this.opencode = new OpenCodeClient(config.opencodeUrl);
+    this.rongApi = new RongCloudServerAPI(config.appKey, config.appSecret, log);
   }
 
   async onConnected(_userId: string): Promise<void> {
@@ -51,7 +54,7 @@ export class RongyunMessageHandler implements IRongyunHandler {
 
     this.log?.info(`[Handler] [${chatType}] ${senderId}: ${text.slice(0, 80)}`);
 
-    // 群聊策略检查
+    // 策略检查
     if (chatType === 'group') {
       if (this.config.groupPolicy === 'disabled') return;
       if (this.config.groupPolicy === 'mention') {
@@ -61,20 +64,15 @@ export class RongyunMessageHandler implements IRongyunHandler {
     }
     if (chatType === 'p2p' && this.config.p2pPolicy === 'disabled') return;
 
-    // 发送已读回执
+    // 已读回执
     this.client.sendReadReceipt(msg).catch(() => {});
 
-    // 发送 "正在输入..." 状态
-    this.client.sendText(msg.conversationType, chatId, '⏳').catch(() => {});
-
     try {
-      // 获取或创建 OpenCode session
       let session = this.sessions.get(chatId);
       if (!session) {
         const s = await this.opencode.createSession(`ClawMessenger ${chatType} ${chatId}`);
         session = { id: s.id, chatId, status: 'idle' };
         this.sessions.set(chatId, session);
-        // 通知 guardserver session 已创建
         this.clawSender.notifySessionCreated(s.id).catch(() => {});
       }
 
@@ -83,61 +81,90 @@ export class RongyunMessageHandler implements IRongyunHandler {
         .replace('{chatId}', chatId)
         .replace('{chatType}', chatType);
 
-      // 发送到 OpenCode 并流式接收回复
-      const sessionId = session.id;
-      await this.opencode.sendPrompt(
-        sessionId,
+      const streamId = `stream_${Date.now()}_${chatId.slice(0, 8)}`;
+      let seq = 0;
+      let messageUID = '';
+      let fullText = '';
+
+      await this.opencode.sendPromptStream(
+        session.id,
         context + text,
-        // onText: 流式增量（融云不支持流式，所以攒着最后一起发）
-        (_delta: string) => {},
-        // onDone: AI 回复完成，发回融云
-        async (fullText: string) => {
-          if (fullText.trim()) {
-            await this.sendReply(msg.conversationType, chatId, fullText);
+        // onChunk: OpenCode 流式增量 → 融云流式消息
+        async (delta: string, chunkSeq: number) => {
+          seq++;
+          fullText += delta;
+
+          const isFirst = seq === 1;
+          const isLast = false; // 不知道是不是最后，后面用 onDone 标记
+
+          if (chatType === 'p2p') {
+            const uid = await this.rongApi.streamPrivate({
+              fromUserId: this.config.accountId,
+              toUserId: chatId,
+              content: fullText,
+              streamId,
+              isFirstChunk: isFirst,
+              isLastChunk: isLast,
+              seq,
+              messageUID: messageUID || undefined,
+            });
+            // 首次获取 messageUID 用于后续更新
+            if (isFirst && uid) messageUID = uid as any;
+          } else {
+            this.rongApi.streamGroup({
+              fromUserId: this.config.accountId,
+              toGroupId: chatId,
+              content: fullText,
+              streamId,
+              isFirstChunk: isFirst,
+              isLastChunk: isLast,
+              seq,
+              messageUID: messageUID || undefined,
+            });
           }
-          session.status = 'idle';
         },
         // onError
         async (err: Error) => {
-          this.log?.error(`[Handler] OpenCode 错误: ${err.message}`);
-          await this.client.sendText(
-            msg.conversationType, chatId,
-            `❌ 处理失败: ${err.message}`
-          );
+          this.log?.error(`[Handler] AI 错误: ${err.message}`);
+          // 发送错误信息
+          this.client.sendText(msg.conversationType, chatId, '❌ ' + err.message).catch(() => {});
           session.status = 'idle';
         }
       );
+
+      // AI 回复完成 → 发送 final chunk
+      if (fullText) {
+        seq++;
+        if (chatType === 'p2p') {
+          await this.rongApi.streamPrivate({
+            fromUserId: this.config.accountId,
+            toUserId: chatId,
+            content: fullText,
+            streamId,
+            isFirstChunk: false,
+            isLastChunk: true,
+            seq,
+            messageUID: messageUID || undefined,
+          });
+        } else {
+          await this.rongApi.streamGroup({
+            fromUserId: this.config.accountId,
+            toGroupId: chatId,
+            content: fullText,
+            streamId,
+            isFirstChunk: false,
+            isLastChunk: true,
+            seq,
+            messageUID: messageUID || undefined,
+          });
+        }
+      }
+
+      session.status = 'idle';
     } catch (err: any) {
       this.log?.error(`[Handler] 异常: ${err.message}`);
       const session = this.sessions.get(chatId);
       if (session) session.status = 'idle';
     }
   }
-
-  /** 发送回复到融云，超长分段 */
-  async sendReply(
-    conversationType: number,
-    targetId: string,
-    text: string
-  ): Promise<void> {
-    const chunks = splitText(text, 2000);
-    for (const chunk of chunks) {
-      await this.client.sendText(conversationType, targetId, chunk);
-      // 小延迟避免融云限流
-      await sleep(100);
-    }
-  }
-}
-
-function splitText(text: string, maxLen: number): string[] {
-  if (text.length <= maxLen) return [text];
-  const chunks: string[] = [];
-  for (let i = 0; i < text.length; i += maxLen) {
-    chunks.push(text.slice(i, i + maxLen));
-  }
-  return chunks;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }

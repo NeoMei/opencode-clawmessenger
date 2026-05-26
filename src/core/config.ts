@@ -7,6 +7,7 @@ const CONFIG_FILE = join(CONFIG_DIR, 'rongyun.json');
 
 export interface RongyunConfig {
   appKey: string;
+  appSecret: string;
   token: string;
   accountId: string;
   /** 机器人用户在融云中的 userId，用于过滤自己发送的消息 */

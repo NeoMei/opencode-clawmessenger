@@ -48,6 +48,12 @@ program
       },
       {
         type: 'input',
+        name: 'appSecret',
+        message: '融云 App Secret:',
+        validate: (v: string) => v.length > 0 || '不能为空',
+      },
+      {
+        type: 'input',
         name: 'secretKey',
         message: '设备 Secret Key:',
         default: 'secret_key',
