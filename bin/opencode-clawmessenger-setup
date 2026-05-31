@@ -1,0 +1,5 @@
+#!/usr/bin/env node
+import('../dist/cli.js').then(() => {}).catch(() => {
+  process.argv = [process.argv[0], process.argv[1], 'setup'];
+  import('../dist/cli.js');
+});
