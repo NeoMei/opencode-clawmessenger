@@ -42,6 +42,8 @@ export enum RongyunMessageTypeEnum {
   HEARTBEAT_ACK = 'heartbeat_ack',
   COMMAND = 'command',
   COMMAND_RESULT = 'command_result',
+  PING = 'ping',
+  PONG = 'pong',
   CHAT_MESSAGE = 'chat_message',
   CREATE_OPENCODE_SESSION = 'create_opencode_session',
   OPENCODE_SESSION_CREATED = 'opencode_session_created',
@@ -54,6 +56,8 @@ export enum RongyunMessageTypeEnum {
   DEVICE_STATUS_REPORT = 'device_status_report',
   DEVICE_CONTROL = 'device_control',
   DEVICE_CONTROL_RESULT = 'device_control_result',
+  OPS_CHAT_MESSAGE = 'ops_chat_message',
+  OPS_CHAT_RESPONSE = 'ops_chat_response',
 }
 
 export interface SessionInfo {

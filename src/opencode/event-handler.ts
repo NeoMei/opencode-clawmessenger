@@ -122,7 +122,17 @@ export class EventHandler {
     if (text) {
       const targetId = chatId.replace('claw-', '');
       log.info({ targetId, textLength: text.length }, 'Sending reply via normal message');
-      await this.rongClient.sendMessage(targetId, text, 1);
+      
+      // 按照规范包装消息：包含 from_node 和 is_ai 字段
+      const messagePayload = JSON.stringify({
+        content: text,
+        extra: JSON.stringify({
+          from_node: this.config.accountId,
+          is_ai: true,
+        }),
+      });
+      
+      await this.rongClient.sendMessage(targetId, messagePayload, 1);
       // sentSessions 已在函数开头添加
     }
 
@@ -209,7 +219,17 @@ export class EventHandler {
 
     log.error({ sessionId: properties.sessionID, error: properties.error }, 'Session error');
     const targetId = chatId.replace('claw-', '');
-    await this.rongClient.sendMessage(targetId, `AI 处理出错: ${properties.error}`, 1);
+    
+    // 按照规范包装错误消息
+    const errorPayload = JSON.stringify({
+      content: `AI 处理出错: ${properties.error}`,
+      extra: JSON.stringify({
+        from_node: this.config.accountId,
+        is_ai: true,
+      }),
+    });
+    
+    await this.rongClient.sendMessage(targetId, errorPayload, 1);
     this.sessionManager.updateStatus(chatId, 'idle');
   }
 }

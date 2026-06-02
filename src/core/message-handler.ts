@@ -13,6 +13,7 @@ export class MessageHandler {
   private sessionManager: SessionManager;
   private rongClient: RongCloudClient;
   private opencode: OpenCodeClient;
+  private opsOpencode: OpenCodeClient;
   private dedup: MessageDeduplicator;
 
   constructor(
@@ -25,6 +26,11 @@ export class MessageHandler {
     this.sessionManager = sessionManager;
     this.rongClient = rongClient;
     this.opencode = opencode;
+    // 运维助手使用独立的 OpenCode server（端口19877）
+    this.opsOpencode = new OpenCodeClient({
+      baseUrl: 'http://127.0.0.1:19877',
+      directory: '/home/neomei/文档/projects/ops-assistant',
+    });
     this.dedup = new MessageDeduplicator();
   }
 
@@ -49,10 +55,28 @@ export class MessageHandler {
         try { innerContent = JSON.parse(msgContent.content); } catch { innerContent = { content: msgContent.content }; }
       }
 
+      // 兼容驼峰和下划线两种命名方式
       const customMsgType = msgContent.msg_type;
-      const sourceImId = msgContent.source_im_id || msg.senderUserId;
-      const requestId = msgContent.request_id;
-      const merged = { ...msgContent, ...innerContent, request_id: requestId, source_im_id: sourceImId };
+      const sourceImId = msgContent.source_im_id || msgContent.sourceImId || msg.senderUserId;
+      const destinationImId = msgContent.destination_im_id || msgContent.destinationImId || msg.targetId;
+      const requestId = msgContent.request_id || msgContent.requestId;
+      const merged = { 
+        ...msgContent, 
+        ...innerContent, 
+        request_id: requestId, 
+        source_im_id: sourceImId,
+        destination_im_id: destinationImId,
+      };
+
+      log.info({ 
+        messageType: msg.messageType, 
+        customMsgType, 
+        senderUserId: msg.senderUserId,
+        targetId: msg.targetId,
+        contentKeys: Object.keys(msgContent),
+        hasMsgType: !!msgContent.msg_type,
+        msgContentPreview: JSON.stringify(msgContent).substring(0, 200)
+      }, 'Message received details');
 
       switch (customMsgType || msg.messageType) {
         case RongyunMessageTypeEnum.CREATE_OPENCODE_SESSION:
@@ -62,8 +86,13 @@ export class MessageHandler {
 
         case 'RC:TxtMsg':
         case 'TextMessage':
+          // RC:TxtMsg = 普通文本消息 → 点点（主OpenCode）
+          await this.handleChatMessage(merged, msg, customMsgType);
+          return;
+
         case RongyunMessageTypeEnum.CHAT_MESSAGE:
         case 'chat_message':
+          // chat_message = 普通聊天消息 → 点点（主OpenCode）
           await this.handleChatMessage(merged, msg, customMsgType);
           return;
 
@@ -81,6 +110,11 @@ export class MessageHandler {
           await this.handleCommand(merged, msg);
           return;
 
+        case RongyunMessageTypeEnum.OPS_CHAT_MESSAGE:
+        case 'ops_chat_message':
+          await this.handleOpsChatMessage(merged, msg);
+          return;
+
         case RongyunMessageTypeEnum.DELETE_OPENCODE_SESSION:
         case 'delete_opencode_session':
           if (merged.session_id) {
@@ -95,9 +129,16 @@ export class MessageHandler {
     } catch (err) {
       log.error({ err }, '处理消息异常');
       try {
+        const errorPayload = JSON.stringify({
+          content: '处理失败，请稍后重试',
+          extra: JSON.stringify({
+            from_node: this.config.accountId,
+            is_ai: true,
+          }),
+        });
         await this.rongClient.sendMessage(
           msg.conversationType === 3 ? msg.targetId : msg.senderUserId,
-          '处理失败，请稍后重试',
+          errorPayload,
           msg.conversationType,
         );
       } catch {}
@@ -134,9 +175,16 @@ export class MessageHandler {
       log.error({ err, sessionId }, '处理聊天消息失败');
       this.sessionManager.updateStatus(sessionId, 'idle');
       try {
+        const errorPayload = JSON.stringify({
+          content: '消息处理失败，请稍后重试',
+          extra: JSON.stringify({
+            from_node: this.config.accountId,
+            is_ai: true,
+          }),
+        });
         await this.rongClient.sendMessage(
           msg.conversationType === 3 ? msg.targetId : msg.senderUserId,
-          '消息处理失败，请稍后重试',
+          errorPayload,
           msg.conversationType,
         );
       } catch {}
@@ -144,7 +192,7 @@ export class MessageHandler {
   }
 
   private async handleCreateOpencodeSession(data: any, msg: RongCloudMessage): Promise<void> {
-    const targetId = data.source_im_id;
+    const targetId = data.source_im_id || data.sourceImId;
     const title = data.title || '新会话';
 
     try {
@@ -176,7 +224,7 @@ export class MessageHandler {
   }
 
   private async handleDeviceStatusRequest(data: any, msg: RongCloudMessage): Promise<void> {
-    const targetId = data.source_im_id;
+    const targetId = data.source_im_id || data.sourceImId || msg.senderUserId;
 
     try {
       const opencodeOk = await checkOpencodeStatus(this.config.opencodeUrl, this.config.opencodePassword);
@@ -203,26 +251,257 @@ export class MessageHandler {
   }
 
   private async handleDeviceControl(data: any, msg: RongCloudMessage): Promise<void> {
-    const targetId = data.source_im_id;
+    const targetId = data.source_im_id || data.sourceImId || msg.senderUserId;
+    
+    // 解析 content 字段中的 JSON（文档规范：content 包含 {"cmd": 1}）
+    let commandContent: any = {};
+    try {
+      if (data.content && typeof data.content === 'string') {
+        commandContent = JSON.parse(data.content);
+      } else if (data.content && typeof data.content === 'object') {
+        commandContent = data.content;
+      }
+    } catch {
+      commandContent = {};
+    }
+    
+    const cmd = commandContent.cmd;
+    const cmdNames: Record<number, string> = {
+      1: 'start',
+      2: 'stop',
+      3: 'restart',
+      4: 'status',
+      5: 'config_fix',
+    };
+    const cmdName = cmdNames[cmd] || `unknown(${cmd})`;
+    
+    log.info({ targetId, cmd, cmdName }, 'Processing device control');
+    
     const result = {
       msg_type: RongyunMessageTypeEnum.DEVICE_CONTROL_RESULT,
       request_id: data.request_id,
-      command: data.command,
+      command: cmdName,
+      cmd: cmd,
       status: 'success',
-      message: `命令 ${data.command} 已接收`,
+      message: `命令 ${cmdName} 已接收`,
+      timestamp: Math.floor(Date.now() / 1000),
     };
     await this.rongClient.sendMessage(targetId, JSON.stringify(result), 1);
   }
 
   private async handleCommand(data: any, msg: RongCloudMessage): Promise<void> {
+    // 如果 command 消息中嵌套了其他 msg_type，路由到对应的 handler
+    const nestedMsgType = data.msg_type;
+    if (nestedMsgType && nestedMsgType !== 'command' && nestedMsgType !== RongyunMessageTypeEnum.COMMAND) {
+      log.info({ nestedMsgType }, 'Command message contains nested msg_type, routing');
+      switch (nestedMsgType) {
+        case RongyunMessageTypeEnum.OPS_CHAT_MESSAGE:
+        case 'ops_chat_message':
+          await this.handleOpsChatMessage(data, msg);
+          return;
+        case RongyunMessageTypeEnum.DEVICE_CONTROL:
+        case 'device_control':
+          await this.handleDeviceControl(data, msg);
+          return;
+        case RongyunMessageTypeEnum.DEVICE_STATUS_REQUEST:
+        case 'device_status_request':
+          await this.handleDeviceStatusRequest(data, msg);
+          return;
+      }
+    }
+
+    // 支持两种格式：requestId（驼峰）和 request_id（下划线）
+    const requestId = data.requestId || data.request_id;
+    const service = data.service;
+    const action = data.action;
+    const payload = data.payload || {};
+    const sourceId = data.source_im_id || data.sourceImId || msg.senderUserId;
+    const destinationId = data.destination_im_id || data.destinationImId || msg.targetId;
+
+    log.info({ requestId, service, action }, 'Handling command');
+
+    // 动态路由：_handle_{service}_{action}
+    const handlerName = `_handle_${service}_${action}`;
+    let result: any;
+
+    try {
+      if (typeof (this as any)[handlerName] === 'function') {
+        result = await (this as any)[handlerName](payload, sourceId);
+      } else {
+        log.warn({ handlerName }, 'Command handler not found');
+        result = {
+          code: 404,
+          message: `Unknown service/action: ${service}/${action}`,
+          status: 'error',
+        };
+      }
+    } catch (err: any) {
+      log.error({ err, handlerName }, 'Command handler error');
+      result = {
+        code: 500,
+        message: err.message || 'Internal server error',
+        status: 'error',
+      };
+    }
+
     const response = {
-      msg_type: 'command_result',
-      request_id: data.request_id,
-      source_im_id: data.destination_im_id,
-      destination_im_id: data.source_im_id,
-      content: JSON.stringify({ status: 'received', command: data.command }),
-      timestamp: Math.floor(Date.now() / 1000),
+      msg_type: RongyunMessageTypeEnum.COMMAND_RESULT,
+      requestId: requestId,
+      service: service,
+      action: action,
+      status: result.status || 'success',
+      code: result.code || 200,
+      data: result.data || null,
+      message: result.message || 'success',
+      timestamp: Date.now(),
     };
-    await this.rongClient.sendMessage(data.source_im_id, JSON.stringify(response), 1);
+
+    await this.rongClient.sendMessage(sourceId, JSON.stringify(response), 1);
+  }
+
+  // ========== Command Handlers ==========
+
+  private async _handle_user_getInfo(payload: any, fromUserId: string): Promise<any> {
+    return {
+      code: 200,
+      message: 'success',
+      status: 'success',
+      data: {
+        userId: fromUserId,
+        username: 'user',
+        nickname: 'User',
+        portraitUri: '',
+        phone: '',
+        email: '',
+        signature: '',
+        gender: '',
+        birthday: '',
+        status: 'active',
+      },
+    };
+  }
+
+  private async _handle_user_login(payload: any, fromUserId: string): Promise<any> {
+    return {
+      code: 200,
+      message: 'Login successful',
+      status: 'success',
+      data: {
+        userId: fromUserId,
+        token: this.config.token,
+      },
+    };
+  }
+
+  private async _handle_claw_getStatus(payload: any, fromUserId: string): Promise<any> {
+    const isRunning = this.opencode !== null;
+    return {
+      code: 200,
+      message: 'success',
+      status: 'success',
+      data: {
+        nodeId: this.config.accountId,
+        status: isRunning ? 'online' : 'offline',
+        openclawUrl: this.config.opencodeUrl,
+        version: '1.0.0',
+      },
+    };
+  }
+
+  private async _handle_claw_start(payload: any, fromUserId: string): Promise<any> {
+    return {
+      code: 200,
+      message: 'Node started',
+      status: 'success',
+      data: { nodeId: this.config.accountId, status: 'online' },
+    };
+  }
+
+  private async _handle_claw_stop(payload: any, fromUserId: string): Promise<any> {
+    return {
+      code: 200,
+      message: 'Node stopped',
+      status: 'success',
+      data: { nodeId: this.config.accountId, status: 'offline' },
+    };
+  }
+
+  private async _handle_system_getConfig(payload: any, fromUserId: string): Promise<any> {
+    return {
+      code: 200,
+      message: 'success',
+      status: 'success',
+      data: {
+        appKey: this.config.appKey,
+        serverUrl: this.config.serverUrl,
+      },
+    };
+  }
+
+  private async handleOpsChatMessage(data: any, msg: RongCloudMessage): Promise<void> {
+    const targetId = data.source_im_id || data.sourceImId || msg.senderUserId;
+    const content = data.message || data.content || '';
+    const nodeId = data.node_id || data.nodeId;
+    const requestId = data.request_id || data.requestId;
+
+    if (!content) {
+      log.warn('Ops chat message content is empty');
+      return;
+    }
+
+    log.info({ targetId, nodeId, contentLength: content.length }, 'Processing ops chat message');
+
+    try {
+      // 使用独立的运维 OpenCodeClient（19877）发送消息
+      // 通过 API 显式传递 system prompt，确保加载运维助手人设
+      const session = await this.opsOpencode.createSession(`Ops-${targetId}`);
+      log.info({ sessionId: session.id }, 'Created ops session');
+      
+      const response = await this.opsOpencode.sendPrompt(session.id, content);
+      log.info({ targetId, responseLength: response.length }, 'Ops assistant responded');
+
+      // 发送自定义消息回复: 按照规范包装 AI 回复
+      // 同时发送 TextMessage 确保前端兼容显示
+      const replyPayload = JSON.stringify({
+        msg_type: RongyunMessageTypeEnum.OPS_CHAT_RESPONSE,
+        request_id: requestId,
+        reply: response,
+        node_id: nodeId || this.config.accountId,
+      });
+      
+      // TextMessage 用于前端显示（RCUIKit 聊天组件兼容）
+      const textPayload = JSON.stringify({
+        content: response,
+        extra: JSON.stringify({
+          from_node: this.config.accountId,
+          is_ai: true,
+          msg_type: RongyunMessageTypeEnum.OPS_CHAT_RESPONSE,
+        }),
+      });
+      
+      // 先发自定义消息，再发 TextMessage
+      await this.rongClient.sendMessage(targetId, replyPayload, msg.conversationType);
+      await this.rongClient.sendMessage(targetId, textPayload, msg.conversationType);
+    } catch (err: any) {
+      log.error({ err, targetId }, 'Ops assistant failed');
+      const errorReply = JSON.stringify({
+        msg_type: RongyunMessageTypeEnum.OPS_CHAT_RESPONSE,
+        request_id: requestId,
+        reply: '运维助手处理失败: ' + (err.message || '未知错误'),
+        node_id: nodeId || this.config.accountId,
+      });
+      
+      const errorTextPayload = JSON.stringify({
+        content: '运维助手处理失败: ' + (err.message || '未知错误'),
+        extra: JSON.stringify({
+          from_node: this.config.accountId,
+          is_ai: true,
+          msg_type: RongyunMessageTypeEnum.OPS_CHAT_RESPONSE,
+        }),
+      });
+      
+      await this.rongClient.sendMessage(targetId, errorReply, msg.conversationType);
+      await this.rongClient.sendMessage(targetId, errorTextPayload, msg.conversationType);
+    }
   }
 }

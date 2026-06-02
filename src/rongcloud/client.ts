@@ -13,6 +13,8 @@ export class RongCloudClient {
   private sentMessageUIds = new Set<string>();
   private CommandMessage: any;
   private ServiceChatMessage: any;
+  private OpsChatMessage: any;
+  private OpsChatResponseMessage: any;
 
   constructor(config: { appKey: string; token: string; accountId: string }, log: Logger) {
     this.config = config;
@@ -38,7 +40,9 @@ export class RongCloudClient {
       if (typeof RongIMLib.registerMessageType === 'function') {
         this.CommandMessage = RongIMLib.registerMessageType('command', false, false);
         this.ServiceChatMessage = RongIMLib.registerMessageType('service_chat', false, false);
-        this.log.info('自定义消息类型已注册');
+        this.OpsChatMessage = RongIMLib.registerMessageType('ops_chat_message', false, false);
+        this.OpsChatResponseMessage = RongIMLib.registerMessageType('ops_chat_response', false, false);
+        this.log.info('自定义消息类型已注册 (command, service_chat, ops_chat_message, ops_chat_response)');
       }
     } catch (err: any) {
       this.log.warn({ err }, '注册自定义消息类型失败');
@@ -48,6 +52,7 @@ export class RongCloudClient {
       const eventName = RongIMLib.Events?.MESSAGES || 'MESSAGES';
       this.log.info({ eventName }, '注册消息监听器');
       RongIMLib.addEventListener(eventName, (event: any) => {
+        this.log.info({ messageCount: event.messages?.length }, '融云消息事件触发');
         event.messages?.forEach((msg: RongCloudMessage) => {
           this.handleReceivedMessage(msg);
         });
@@ -82,11 +87,20 @@ export class RongCloudClient {
 
   private handleReceivedMessage(message: RongCloudMessage): void {
     try {
-      if (message.messageDirection === 1) return;
-      if (message.senderUserId === this.config.accountId) return;
-      if (message.messageUId && this.sentMessageUIds.has(message.messageUId)) return;
+      if (message.messageDirection === 1) {
+        this.log.info({ messageType: message.messageType, senderUserId: message.senderUserId }, '忽略自己发送的消息');
+        return;
+      }
+      if (message.senderUserId === this.config.accountId) {
+        this.log.info({ messageType: message.messageType, senderUserId: message.senderUserId }, '忽略同一账号消息');
+        return;
+      }
+      if (message.messageUId && this.sentMessageUIds.has(message.messageUId)) {
+        this.log.info({ messageType: message.messageType, messageUId: message.messageUId }, '忽略已发送消息');
+        return;
+      }
       if (message.isOffLineMessage) {
-        this.log.debug({ messageType: message.messageType, senderUserId: message.senderUserId }, '忽略离线消息');
+        this.log.info({ messageType: message.messageType, senderUserId: message.senderUserId }, '忽略离线消息');
         return;
       }
 
@@ -94,6 +108,10 @@ export class RongCloudClient {
         messageType: message.messageType,
         senderUserId: message.senderUserId,
         conversationType: message.conversationType,
+        messageDirection: message.messageDirection,
+        isOffLineMessage: message.isOffLineMessage,
+        hasContent: !!message.content,
+        contentType: typeof message.content,
       }, '收到消息');
 
       Promise.resolve().then(() => {
@@ -117,7 +135,7 @@ export class RongCloudClient {
   async sendMessage(targetId: string, content: string, conversationType: number = 1): Promise<void> {
     if (!this._isConnected) {
       this.log.warn('融云未连接，无法发送消息');
-      return;
+      throw new Error('RongCloud not connected');
     }
 
     try {
@@ -126,10 +144,17 @@ export class RongCloudClient {
       try { parsedContent = JSON.parse(content); } catch {}
 
       if (parsedContent && parsedContent.msg_type) {
-        if (this.CommandMessage) {
+        const msgType = parsedContent.msg_type;
+        if (msgType === 'ops_chat_message' && this.OpsChatMessage) {
+          messageContent = new this.OpsChatMessage(parsedContent);
+        } else if (msgType === 'ops_chat_response' && this.OpsChatResponseMessage) {
+          messageContent = new this.OpsChatResponseMessage(parsedContent);
+        } else if (msgType === 'service_chat' && this.ServiceChatMessage) {
+          messageContent = new this.ServiceChatMessage(parsedContent);
+        } else if (this.CommandMessage) {
           messageContent = new this.CommandMessage(parsedContent);
         } else {
-          messageContent = { messageName: 'command', content };
+          messageContent = { messageName: msgType, content };
         }
       } else {
         const safeContent = content || '';
@@ -152,11 +177,14 @@ export class RongCloudClient {
           const first = this.sentMessageUIds.values().next().value;
           if (first) this.sentMessageUIds.delete(first);
         }
+      } else if (result.code !== 0) {
+        throw new Error(`RongCloud send failed: code=${result.code}, msg=${result.msg || 'unknown'}`);
       }
 
       this.log.info({ targetId }, '消息发送成功');
     } catch (err: any) {
       this.log.error({ err, targetId }, '消息发送失败');
+      throw err;
     }
   }
 

@@ -43,7 +43,7 @@ export async function registerNode(
 
   try {
     const response = await axios.post(
-      `${serverUrl}/api/claw/register`,
+      `${serverUrl}/im/api/claw/register`,
       { node_id: nodeId, name: nickname, mac_address: macAddress },
       { headers: { 'Content-Type': 'application/json' }, timeout: 15000 },
     );
@@ -61,7 +61,7 @@ export async function registerNode(
 
     if (response.data?.code === 409) {
       log?.info('节点已存在，获取 Token...');
-      const tokenResp = await axios.get(`${serverUrl}/api/claw/token/${nodeId}`, { timeout: 10000 });
+      const tokenResp = await axios.get(`${serverUrl}/im/api/claw/token/${nodeId}`, { timeout: 10000 });
       if (tokenResp.data?.code === 200) {
         const token = tokenResp.data.data?.token || tokenResp.data.token || '';
         if (!token) {

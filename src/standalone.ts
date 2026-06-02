@@ -133,18 +133,10 @@ export async function startStandalone(options: StartStandaloneOptions = {}): Pro
 
   console.log('RongCloud connected\n');
 
+  // 初始注册 claw 节点（只执行一次）
   await registerNodeToServer(config, log);
 
-  const serverHeartbeatInterval = setInterval(async () => {
-    try {
-      const isOnline = await checkOpencodeStatus(config.opencodeUrl, config.opencodePassword);
-      log.debug({ opencodeOnline: isOnline }, 'Server heartbeat check');
-      await registerNodeToServer(config, log);
-    } catch (err: any) {
-      log.warn({ err }, 'Server heartbeat failed');
-    }
-  }, 30_000);
-
+  // 融云连接检查（每30秒）
   const rongcloudCheckInterval = setInterval(() => {
     if (!rongClient.isConnected) {
       log.warn('RongCloud disconnected, reconnecting...');
@@ -179,7 +171,6 @@ export async function startStandalone(options: StartStandaloneOptions = {}): Pro
     console.log(`\nReceived ${signal}, shutting down...`);
 
     stopStatusWriter();
-    clearInterval(serverHeartbeatInterval);
     clearInterval(rongcloudCheckInterval);
 
     if (eventHandler) eventHandler.stop();
@@ -198,9 +189,10 @@ export async function startStandalone(options: StartStandaloneOptions = {}): Pro
 
 async function registerNodeToServer(config: ClawMessengerConfig, log: any): Promise<void> {
   try {
-    const { serverUrl, accountId, opencodeUrl } = config;
+    const { serverUrl, accountId } = config;
     if (!serverUrl || !accountId) return;
 
+    // 只注册 claw 节点，获取融云 token
     await fetch(`${serverUrl}/api/claw/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -212,19 +204,7 @@ async function registerNodeToServer(config: ClawMessengerConfig, log: any): Prom
       signal: AbortSignal.timeout(10000),
     });
 
-    const userId = process.env.CLAW_USER_ID || 'admin';
-    await fetch(`${serverUrl}/im/api/saas/nodes/${accountId}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_id: userId,
-        openclaw_url: opencodeUrl,
-        deploy_status: 'online',
-      }),
-      signal: AbortSignal.timeout(10000),
-    });
-
-    log.debug('Node registered to server');
+    log.info('Claw node registered to server');
   } catch (error: any) {
     log.warn({ err: error }, 'Register node to server failed');
   }
