@@ -45,6 +45,11 @@ export class ServerWebSocketClient {
         try {
           const message = JSON.parse(data.toString());
           this.log.info({ type: message.type }, 'Server message received');
+          
+          // 响应服务端 ping 消息
+          if (message.type === 'ping') {
+            this.send({ type: 'pong', node_id: this.nodeId, timestamp: new Date().toISOString() });
+          }
         } catch {
           this.log.warn('Non-JSON server message');
         }
