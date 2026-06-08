@@ -7,7 +7,7 @@ import { getMacAddress } from './mac-address.js';
 import type { Logger } from './logger.js';
 import https from 'https';
 
-const DEFAULT_SERVER_URL = 'https://newsradar.dreamdt.cn/im-test';
+const DEFAULT_SERVER_URL = 'https://newsradar.dreamdt.cn/im';
 const TOKEN_VALIDITY_MS = 7 * 24 * 60 * 60 * 1000;
 const CONFIG_DIR = path.join(os.homedir(), '.claw-bridge');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
@@ -139,9 +139,9 @@ export async function getAppKey(serverUrl?: string): Promise<string> {
   if (cachedAppKey) {
     return cachedAppKey;
   }
-  
-  // 从服务端获取 - 使用 /im-test 路径前缀
-  const baseUrl = 'https://newsradar.dreamdt.cn/im-test';
+
+  // 从服务端获取 - 使用 /im 路径前缀
+  const baseUrl = 'https://newsradar.dreamdt.cn/im';
   try {
     const response = await axios.get(`${baseUrl}/api/config/rongcloud`, { timeout: 10000 });
     if (response.data?.code === 200 && response.data.data?.appKey) {
@@ -151,7 +151,7 @@ export async function getAppKey(serverUrl?: string): Promise<string> {
   } catch (e) {
     console.warn('从服务端获取 AppKey 失败，使用默认值:', e);
   }
-  
+
   // 兜底默认值
   return 'bmdehs6pbyyks';
 }
@@ -163,7 +163,7 @@ export async function getAppSecret(serverUrl: string, token: string, nodeId?: st
   if (cachedAppSecret) {
     return cachedAppSecret;
   }
-  
+
   // 从服务端获取 - 需要节点 token 验证
   const baseUrl = serverUrl.replace(/\/$/, '');
   try {
@@ -174,7 +174,7 @@ export async function getAppSecret(serverUrl: string, token: string, nodeId?: st
     if (nodeId) {
       headers['X-Node-Id'] = nodeId;
     }
-    
+
     const response = await axios.get(`${baseUrl}/api/config/rongcloud/secret`, {
       timeout: 10000,
       headers,
@@ -193,10 +193,10 @@ export async function getAppSecret(serverUrl: string, token: string, nodeId?: st
       console.warn('Error response:', e.response.status, e.response.data);
     }
   }
-  
+
   return undefined;
 }
 
 export function getServerUrl(): string {
-  return process.env.DM_SERVER_URL || 'https://newsradar.dreamdt.cn/im-test';
+  return process.env.DM_SERVER_URL || 'https://newsradar.dreamdt.cn/im';
 }
