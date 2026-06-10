@@ -30,9 +30,11 @@ export class MessageHandler {
     this.rongClient = rongClient;
     this.opencode = opencode;
     // 运维助手使用独立的 OpenCode server（端口19877）
+    // 优先级：环境变量 CLAW_OPS_OPENCODE_DIR > process.cwd()
+    const opsDir = process.env.CLAW_OPS_OPENCODE_DIR || process.cwd();
     this.opsOpencode = new OpenCodeClient({
       baseUrl: 'http://127.0.0.1:19877',
-      directory: '/home/neomei/文档/projects/ops-assistant',
+      directory: opsDir,
     });
     this.dedup = new MessageDeduplicator();
     this.pendingRequests = new Map();

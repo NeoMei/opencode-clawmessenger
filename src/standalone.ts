@@ -76,8 +76,8 @@ export async function startStandalone(options: StartStandaloneOptions = {}): Pro
 
   // 参考 opencode-feishu：directory 指向包含 .opencode/prompt.md 的目录
   // OpenCode 会自动加载该目录下的 prompt.md 作为 system prompt
-  const soulFrameworkDir = '/home/neomei/文档/projects/agent-soul-framework';
-  const opencodeDir = config.opencodeDir || soulFrameworkDir || process.cwd();
+  // 优先级：环境变量 CLAW_OPENCODE_DIR > 配置文件的 opencodeDir > process.cwd()
+  const opencodeDir = config.opencodeDir || process.cwd();
 
   const opencode = new OpenCodeClient({
     baseUrl: config.opencodeUrl,

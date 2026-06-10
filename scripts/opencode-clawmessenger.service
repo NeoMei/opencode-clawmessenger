@@ -1,0 +1,42 @@
+[Unit]
+Description=OpenCode ClawMessenger Bridge - 融云虾说桥接服务
+Documentation=https://github.com/neomei/opencode-clawmessenger#readme
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%USER%
+Group=%GROUP%
+WorkingDirectory=%INSTALL_DIR%
+
+# 使用绝对路径执行 Node 和 CLI
+Environment="NODE_ENV=production"
+Environment="CLAW_LOG_LEVEL=info"
+
+# 关键配置路径
+Environment="HOME=%HOME%"
+Environment="CLAW_CONFIG_DIR=%HOME%/.config/opencode"
+
+ExecStart=%NODE_BIN% %CLI_PATH% start
+ExecReload=/bin/kill -HUP $MAINPID
+ExecStop=/bin/kill -TERM $MAINPID
+
+# 重启策略
+Restart=on-failure
+RestartSec=5
+StartLimitInterval=60s
+StartLimitBurst=3
+
+# 标准输出/错误重定向到 journal
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=opencode-clawmessenger
+
+# 安全加固（可选，根据需要启用）
+# NoNewPrivileges=true
+# ProtectSystem=strict
+# ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target
