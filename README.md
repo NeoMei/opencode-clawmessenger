@@ -15,6 +15,17 @@ opencode-clawmessenger setup
 opencode-clawmessenger start
 ```
 
+## CLI Commands
+
+```bash
+opencode-clawmessenger setup            # Auto-register, save config
+opencode-clawmessenger start            # Foreground
+opencode-clawmessenger start --daemon   # Background daemon
+opencode-clawmessenger stop             # Stop daemon
+opencode-clawmessenger status           # Check status [--json]
+opencode-clawmessenger logs             # Tail logs [-n N] [-f]
+```
+
 ## License
 
 MIT
