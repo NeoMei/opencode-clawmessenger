@@ -5,6 +5,25 @@ import { existsSync, readFileSync } from 'fs';
 
 const log = createLogger('OpenCodeClient');
 
+/**
+ * 序列化错误对象为可读的字符串
+ * 解决 JSON.stringify(Error) 返回 {} 的问题
+ */
+export function serializeError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message || error.name || 'Unknown Error';
+  }
+  if (typeof error === 'object' && error !== null) {
+    const err = error as any;
+    if (err.message) return err.message;
+    if (err.error) return typeof err.error === 'string' ? err.error : JSON.stringify(err.error);
+    if (err.detail) return err.detail;
+    if (err.statusText) return err.statusText;
+    return JSON.stringify(error);
+  }
+  return String(error);
+}
+
 export class OpenCodeClient {
   private client: ReturnType<typeof createOpencodeClient>;
   private baseUrl: string;
@@ -91,10 +110,11 @@ export class OpenCodeClient {
   }
 
   async createSession(title: string): Promise<{ id: string }> {
-    const { data, error } = await this.client.session.create({ title });
+    const { data, error, response } = await this.client.session.create({ title });
     if (error) {
-      const errStr = typeof error === 'object' ? JSON.stringify(error) : String(error);
-      throw new Error(`创建会话失败: ${errStr}`);
+      const errStr = serializeError(error);
+      const statusText = response?.statusText ? ` [${response.status} ${response.statusText}]` : '';
+      throw new Error(`创建会话失败: ${errStr}${statusText}`);
     }
     const sessionId = data?.id || (data as any)?.session_id;
     if (!sessionId) throw new Error('创建会话返回空 ID');
@@ -110,30 +130,32 @@ export class OpenCodeClient {
   }
 
   async sendPromptAsync(sessionId: string, text: string): Promise<void> {
-    const { error } = await this.client.session.promptAsync({
+    const { error, response } = await this.client.session.promptAsync({
       sessionID: sessionId,
       system: this.systemPrompt,
       parts: [{ type: 'text' as const, text: text }],
     });
 
     if (error) {
-      const errStr = typeof error === 'object' ? JSON.stringify(error) : String(error);
-      throw new Error(`发送消息失败: ${errStr}`);
+      const errStr = serializeError(error);
+      const statusText = response?.statusText ? ` [${response.status} ${response.statusText}]` : '';
+      throw new Error(`发送消息失败: ${errStr}${statusText}`);
     }
 
     log.info({ sessionId, hasSystemPrompt: !!this.systemPrompt }, 'promptAsync fired');
   }
 
   async sendPrompt(sessionId: string, text: string): Promise<string> {
-    const { error } = await this.client.session.prompt({
+    const { error, response } = await this.client.session.prompt({
       sessionID: sessionId,
       system: this.systemPrompt,
       parts: [{ type: 'text' as const, text: text }],
     });
 
     if (error) {
-      const errStr = typeof error === 'object' ? JSON.stringify(error) : String(error);
-      throw new Error(`发送消息失败: ${errStr}`);
+      const errStr = serializeError(error);
+      const statusText = response?.statusText ? ` [${response.status} ${response.statusText}]` : '';
+      throw new Error(`发送消息失败: ${errStr}${statusText}`);
     }
 
     log.info({ sessionId }, 'Prompt sent, waiting for response');
