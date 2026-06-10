@@ -180,6 +180,12 @@ export class MessageHandler {
           await this.handleServiceChatMessage(merged, msg);
           return;
 
+        case 'RC:HQVCMsg':
+        case 'RC:VCMsg':
+          // 高质量语音消息：先语音识别，再作为文本消息处理
+          await this.handleVoiceMessage(merged, msg);
+          return;
+
         case RongyunMessageTypeEnum.DELETE_OPENCODE_SESSION:
         case 'delete_opencode_session':
           if (merged.session_id) {
@@ -763,6 +769,56 @@ export class MessageHandler {
       log.info({ voiceUrl, recognizedTextPreview: text.substring(0, 100) }, 'Voice recognized via RongCloud');
       return text;
     });
+  }
+
+  /**
+   * 处理语音消息：先语音识别，再作为文本消息处理
+   */
+  private async handleVoiceMessage(data: any, msg: RongCloudMessage): Promise<void> {
+    const voiceUrl = data.remoteUrl || data.remote_url || data.url;
+    const duration = data.duration || 0;
+
+    if (!voiceUrl) {
+      log.warn({ messageType: msg.messageType }, 'Voice message missing remoteUrl');
+      return;
+    }
+
+    log.info({ voiceUrl, duration, senderUserId: msg.senderUserId }, 'Processing voice message');
+
+    try {
+      // 语音识别
+      const recognizedText = await this._recognizeVoice(voiceUrl);
+      log.info({ voiceUrl, recognizedText }, 'Voice recognized successfully');
+
+      // 将识别结果作为文本消息处理
+      const textData = {
+        ...data,
+        content: recognizedText,
+        _raw_content: recognizedText,
+        voiceUrl: voiceUrl,
+        voiceDuration: duration,
+      };
+
+      await this.handleChatMessage(textData, msg, msg.messageType);
+    } catch (err: any) {
+      log.error({ err: err.message, voiceUrl }, 'Voice recognition failed');
+
+      // 发送错误提示给用户
+      const errorPayload = JSON.stringify({
+        content: '语音消息识别失败，请稍后重试或发送文字消息',
+        extra: JSON.stringify({
+          from_node: this.config.accountId,
+          is_ai: true,
+          is_error: true,
+        }),
+      });
+
+      try {
+        await this.rongClient.sendMessage(msg.senderUserId, errorPayload, msg.conversationType);
+      } catch (sendErr) {
+        log.error({ sendErr }, 'Failed to send voice recognition error message');
+      }
+    }
   }
 
   private async handleServiceChatMessage(data: any, msg: RongCloudMessage): Promise<void> {
