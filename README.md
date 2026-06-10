@@ -8,7 +8,6 @@
 ## 目录
 
 - [核心特性](#核心特性)
-- [架构概览](#架构概览)
 - [快速开始](#快速开始)
   - [前置要求](#前置要求)
   - [方式一：npm 全局安装（推荐）](#方式一npm-全局安装推荐)
@@ -40,44 +39,6 @@
 - **二维码加密**：与小程序共享 XOR + Base64 加密算法，保证扫码绑定安全
 - **结构化日志**：基于 Pino 的日志输出，支持文件和控制台双输出
 
-## 架构概览
-
-```
-src/
-  types/plugin.ts        OpenCode 插件接口
-  plugin.ts              插件模式入口
-  standalone.ts          独立守护进程入口
-  cli.ts                 Commander CLI
-  index.ts               库导出
-  core/
-    types.ts             配置和消息类型定义
-    config.ts            Zod 配置管理器
-    logger.ts            Pino 结构化日志
-    session-manager.ts   chatId→sessionId 映射持久化
-    message-handler.ts   消息分发和已读回执
-    dedup.ts             消息去重
-    daemon.ts            PID/心跳守护
-    hook-manager.ts      生命周期钩子
-    auto-register.ts     节点注册（7 天 token）
-    qr-crypto.ts         二维码加密
-    mac-address.ts       跨平台 MAC 地址获取
-  rongcloud/
-    env-polyfill.ts      浏览器 polyfill（必须在 SDK 前导入）
-    client.ts            融云 IM 客户端
-    server-api.ts        融云服务端 REST API
-  opencode/
-    client.ts            OpenCode SDK 包装器
-    event-handler.ts     SSE 事件流处理
-  websocket/
-    client.ts            直接 WebSocket 客户端
-    server-client.ts     服务端中转 WebSocket
-bin/
-  opencode-clawmessenger      CLI 入口
-scripts/
-  install.sh             Linux 自动安装脚本
-  uninstall.sh           Linux 卸载脚本
-  opencode-clawmessenger.service   systemd 服务模板
-```
 
 ## 快速开始
 
