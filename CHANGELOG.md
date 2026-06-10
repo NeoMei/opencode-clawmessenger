@@ -1,3 +1,9 @@
+## [0.5.1](https://github.com/NeoMei/opencode-clawmessenger/compare/v0.5.0...v0.5.1) (2026-06-10)
+
+### Bug Fixes
+
+* **ci:** allow all commits to trigger npm release ([551ea8e](https://github.com/NeoMei/opencode-clawmessenger/commit/551ea8eb2e56e1551e000a097a5cd3a521be6c5f))
+
 ## [0.4.0](https://github.com/NeoMei/opencode-clawmessenger/compare/v0.3.0...v0.4.0) (2026-06-10)
 
 ### Features
