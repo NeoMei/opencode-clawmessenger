@@ -107,7 +107,8 @@ export class MessageHandler {
       }
 
       // 兼容驼峰和下划线两种命名方式
-      const customMsgType = msgContent.msg_type;
+      // 同时检查 msgContent 和 innerContent 的 msg_type，因为融云消息可能嵌套两层
+      const customMsgType = msgContent.msg_type || innerContent.msg_type;
       const sourceImId = msgContent.source_im_id || msgContent.sourceImId || msg.senderUserId;
       const destinationImId = msgContent.destination_im_id || msgContent.destinationImId || msg.targetId;
       const requestId = msgContent.request_id || msgContent.requestId;
@@ -436,8 +437,12 @@ export class MessageHandler {
       ? msg.targetId
       : (data.source_im_id || data.sourceImId || msg.senderUserId);
 
+    log.info({ targetId, opencodeUrl: this.config.opencodeUrl }, 'Processing device status request');
+
     try {
       const opencodeOk = await checkOpencodeStatus(this.config.opencodeUrl, this.config.opencodePassword);
+      log.info({ opencodeOk }, 'OpenCode status check result');
+
       const statusData = {
         open_claw_status: opencodeOk ? 1 : 0,
         status_message: opencodeOk ? '运行中' : '未运行',
@@ -455,8 +460,28 @@ export class MessageHandler {
       };
 
       await this.rongClient.sendMessage(targetId, JSON.stringify(report), msg.conversationType);
+      log.info({ targetId, status: statusData.status_message }, 'Device status report sent');
     } catch (err: any) {
-      log.error({ err }, '设备状态查询异常');
+      log.error({ err: err.message || err, targetId }, '设备状态查询异常');
+
+      // 发送错误回复
+      const errorReport = {
+        msg_type: RongyunMessageTypeEnum.DEVICE_STATUS_REPORT,
+        request_id: data.request_id,
+        source_im_id: this.config.accountId,
+        destination_im_id: targetId,
+        content: JSON.stringify({
+          open_claw_status: -1,
+          status_message: '状态查询失败: ' + (err.message || '未知错误'),
+          timestamp: Date.now(),
+        }),
+        timestamp: Math.floor(Date.now() / 1000),
+      };
+      try {
+        await this.rongClient.sendMessage(targetId, JSON.stringify(errorReport), msg.conversationType);
+      } catch (sendErr) {
+        log.error({ sendErr }, 'Failed to send device status error report');
+      }
     }
   }
 
@@ -519,6 +544,10 @@ export class MessageHandler {
         case RongyunMessageTypeEnum.DEVICE_STATUS_REQUEST:
         case 'device_status_request':
           await this.handleDeviceStatusRequest(data, msg);
+          return;
+        case RongyunMessageTypeEnum.COMMAND_RESULT:
+        case 'command_result':
+          this.handleCommandResult(data, msg);
           return;
       }
     }
