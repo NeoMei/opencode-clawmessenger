@@ -3,3 +3,11 @@ dist/
 .env
 *.log
 config.json
+
+# 敏感信息：个人魂器、系统提示词、临时测试脚本
+soul/
+.opencode/prompt.md
+test_*.js
+*.secret
+*.key.pem
+
