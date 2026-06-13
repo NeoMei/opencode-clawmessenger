@@ -1,5 +1,7 @@
 ## [0.5.2](https://github.com/NeoMei/opencode-clawmessenger/compare/v0.5.1...v0.5.2) (2026-06-13)
 
+## [0.5.2](https://github.com/NeoMei/opencode-clawmessenger/compare/v0.5.1...v0.5.2) (2026-06-13)
+
 ## [0.5.1](https://github.com/NeoMei/opencode-clawmessenger/compare/v0.5.0...v0.5.1) (2026-06-10)
 
 ### Bug Fixes
