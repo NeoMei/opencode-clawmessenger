@@ -141,19 +141,20 @@ export async function getAppKey(serverUrl?: string): Promise<string> {
   }
 
   // 从服务端获取 - 使用 /im 路径前缀
-  const baseUrl = 'https://newsradar.dreamdt.cn/im';
+  const baseUrl = serverUrl ? serverUrl.replace(/\/$/, '') : 'https://newsradar.dreamdt.cn/im';
   try {
     const response = await axios.get(`${baseUrl}/api/config/rongcloud`, { timeout: 10000 });
     if (response.data?.code === 200 && response.data.data?.appKey) {
       cachedAppKey = response.data.data.appKey as string;
       return cachedAppKey;
     }
+    console.warn('从服务端获取 AppKey 响应异常:', response.data);
   } catch (e) {
-    console.warn('从服务端获取 AppKey 失败，使用默认值:', e);
+    console.warn('从服务端获取 AppKey 失败:', e);
   }
 
-  // 兜底默认值
-  return 'bmdehs6pbyyks';
+  // 不再使用硬编码兜底值，避免泄露敏感信息
+  throw new Error('无法从服务端获取融云 AppKey，请检查网络或服务端配置');
 }
 
 let cachedAppSecret: string | undefined = undefined;
